@@ -36,7 +36,7 @@ void setup() {
     pinMode(PIN_MOSFET_C_LO, OUTPUT);
     pinMode(PIN_MOSFET_C_HI, OUTPUT);
 
-    analogWriteFrequency(800000);
+    analogWriteFrequency(19500);
 
     analogWrite(PIN_MOSFET_A_LO, 0);
     analogWrite(PIN_MOSFET_A_HI, 0);
