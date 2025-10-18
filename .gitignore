@@ -1,0 +1,21 @@
+# Build output
+Debug/
+
+# IDE metadata/config
+.settings/
+.directory
+
+# Auto-generated / unnecessary files
+*.launch
+
+# Common build byproducts
+*.o
+*.d
+*.elf
+*.map
+*.bin
+*.hex
+*.list
+*.srec
+
+tests/
