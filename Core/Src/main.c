@@ -32,11 +32,11 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 // This must be set to 0 in order to run motor
-#define DEBUG_MODE 1
+#define DEBUG_MODE 0
 #define HALL_DEBUG_MODE 0
 #define HI_LO_DEBUG_MODE 0
-#define THROTTLE_DEBUG_MODE 1
-#define CYCLES_DEBUG_MODE 1
+#define THROTTLE_DEBUG_MODE 0
+#define CYCLES_DEBUG_MODE 0
 // cycle registers
 #define DEMCR (*((volatile uint32_t*) 0xE000EDFC))
 #define DWT_CTRL (*((volatile uint32_t*) 0xE0001000))
@@ -142,9 +142,9 @@ int main(void)
     /* USER CODE BEGIN WHILE */
     while (1)
     {
-#if !defined(DEBUG)
-        __WFI(); // sleep until event
-#endif
+// #if !defined(DEBUG)
+//         __WFI(); // sleep until event
+// #endif
         DWT_CYCCNT = 0;
         if (commutateFlag)
         {
@@ -326,7 +326,7 @@ static void MX_TIM1_Init(void)
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
     sConfigOC.Pulse = 0;
     sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCNPolarity = TIM_OCNPOLARITY_LOW;
+    sConfigOC.OCNPolarity = TIM_OCNPOLARITY_LOW; 
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
     sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
     sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
@@ -417,11 +417,12 @@ static void MX_GPIO_Init(void)
     HAL_GPIO_WritePin(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, GPIO_PIN_RESET);
 
     /*Configure GPIO pin Output Level */
+    // HAL_GPIO_WritePin(GPIOB, LD3_Pin | MOSFET_A_LO_Pin | MOSFET_B_LO_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOB, LD3_Pin | MOSFET_A_LO_Pin | MOSFET_B_LO_Pin, GPIO_PIN_RESET);
 
     /*Configure GPIO pins : HALL_C_Pin HALL_B_Pin HALL_A_Pin */
     GPIO_InitStruct.Pin = HALL_C_Pin | HALL_B_Pin | HALL_A_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
@@ -455,17 +456,46 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+#define COMMUTATION_DEADTIME_US 6
+
+static inline void allOff(void)
+{
+  // Stop PWM drive (compare = 0 is simplest)
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
+
+  // All low sides off
+  gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, 0);
+  gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, 0);
+  gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, 0);
+}
+
+static inline void deadtime_us(uint32_t us)
+{
+  // DWT must be enabled like you did
+  uint32_t start = DWT_CYCCNT;
+  uint32_t ticks = us * (SystemCoreClock / 1000000UL);
+  while ((DWT_CYCCNT - start) < ticks) { }
+}
+
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
     dutyCycle = adc_read(&hadc1);
-    commutateFlag = 1;
 }
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    hallState = (gpio_read(HALL_A_GPIO_Port, HALL_A_Pin) << 2) |
+    uint8_t newHall = (gpio_read(HALL_A_GPIO_Port, HALL_A_Pin) << 2) |
                 (gpio_read(HALL_B_GPIO_Port, HALL_B_Pin) << 1) |
                 (gpio_read(HALL_C_GPIO_Port, HALL_C_Pin));
-    commutateFlag = 1;
+    // Only if it actually changed
+    if (newHall != hallState) {
+        allOff();
+        deadtime_us(COMMUTATION_DEADTIME_US);
+        hallState = newHall;
+        commutateFlag = 1;
+    }
 }
 void commutate(uint8_t hallState, uint16_t dutyCycle)
 {
