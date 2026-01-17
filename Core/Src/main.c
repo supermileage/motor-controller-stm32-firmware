@@ -483,6 +483,7 @@ static inline void deadtime_us(uint32_t us)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
     dutyCycle = adc_read(&hadc1);
+    commutateFlag = 1;
 }
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
