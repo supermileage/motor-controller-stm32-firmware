@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 STMicroelectronics.
+  * Copyright (c) 2026 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -46,16 +46,18 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-static inline uint8_t gpio_read(GPIO_TypeDef *port, uint16_t pin) {
+// inline GPIO helpers to reduce HAL equivalents function call overheads
+static inline uint8_t gpio_read(GPIO_TypeDef *port, uint16_t pin)
+{
 	return (port->IDR & pin) ? 1 : 0;
 }
-static inline void gpio_write(GPIO_TypeDef *port, uint16_t pin, bool on) {
-	if (on)
-		port->BSRR = pin;
-	else
-		port->BRR = pin;
+static inline void gpio_write(GPIO_TypeDef *port, uint16_t pin, bool on)
+{
+	if (on) port->BSRR = pin;
+	else port->BRR = pin;
 }
-static inline uint16_t adc_read(const ADC_HandleTypeDef *hadc) {
+static inline uint16_t adc_read(const ADC_HandleTypeDef *hadc)
+{
 	return hadc->Instance->DR;
 }
 /* USER CODE END EM */
@@ -70,8 +72,6 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define MCO_Pin GPIO_PIN_0
-#define MCO_GPIO_Port GPIOA
 #define HALL_C_Pin GPIO_PIN_1
 #define HALL_C_GPIO_Port GPIOA
 #define HALL_C_EXTI_IRQn EXTI1_IRQn
@@ -99,8 +99,6 @@ void Error_Handler(void);
 #define SWCLK_GPIO_Port GPIOA
 #define VCP_RX_Pin GPIO_PIN_15
 #define VCP_RX_GPIO_Port GPIOA
-#define LD3_Pin GPIO_PIN_3
-#define LD3_GPIO_Port GPIOB
 #define MOSFET_A_LO_Pin GPIO_PIN_5
 #define MOSFET_A_LO_GPIO_Port GPIOB
 #define MOSFET_B_LO_Pin GPIO_PIN_6
