@@ -21,7 +21,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdbool.h>
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -53,6 +52,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 TIM_HandleTypeDef htim1;
 
@@ -61,16 +61,18 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 #if DEBUG
 int counter = 0;
-#endif
 uint32_t cycles;
-volatile uint16_t dutyCycle;
+#endif
+static volatile uint16_t adc_buf[1];
+volatile uint16_t dutyCycle = 0;
 volatile uint8_t hallState;
-volatile uint8_t commutateFlag;
+volatile uint8_t commutateFlag = 1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -81,91 +83,64 @@ void commutate(uint8_t hallState, uint16_t dutyCycle);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  uint8_t newHall = read_hall();
+  // only commutate if hall state changed
+  if (newHall != hallState)
+  {
+    allOff();
+    hallState = newHall;
+    deadtime_us(COMMUTATION_DEADTIME_US);
+    commutateFlag = 1;
+  }
+}
 PUTCHAR_PROTOTYPE
 {
   HAL_UART_Transmit(&huart2, (uint8_t*) &ch, 1, 0xFFFF);
   return ch;
 }
-void commutate(uint8_t hallState, uint16_t dutyCycle)
-{
-  switch (hallState)
-  {
-    case 0b101:
-      gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
-      gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, true);   // YES
-      gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, dutyCycle);   // YES
-      break;
-
-    case 0b100:
-      gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
-      gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, true);  // YES
-      gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, dutyCycle);   // YES
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
-      break;
-
-    case 0b110:
-      gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
-      gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
-      gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, true);  // YES
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, dutyCycle);   // YES
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
-      break;
-
-    case 0b010:
-      gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
-      gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
-      gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, true);  // YES
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, dutyCycle);   // YES
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
-      break;
-
-    case 0b011:
-      gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, true);  // YES
-      gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
-      gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, dutyCycle);   // YES
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
-      break;
-
-    case 0b001:
-      gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, true);  // YES
-      gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
-      gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, dutyCycle);   // YES
-      break;
-
-    default:
-      gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
-      gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
-      gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
-      break;
-  }
+static const comm_state_t comm_table[8] = {
+  /* 0b000 */ {0, PWM_NONE},
+  /* 0b001 */ {0b001, PWM_CH3}, // A_LO on, C_HI PWM
+  /* 0b010 */ {0b100, PWM_CH2}, // C_LO on, B_HI PWM
+  /* 0b011 */ {0b001, PWM_CH2}, // A_LO on, B_HI PWM
+  /* 0b100 */ {0b010, PWM_CH4}, // B_LO on, A_HI PWM
+  /* 0b101 */ {0b010, PWM_CH3}, // B_LO on, C_HI PWM
+  /* 0b110 */ {0b100, PWM_CH4}, // C_LO on, A_HI PWM
+  /* 0b111 */ {0, PWM_NONE},
+};
+static inline void set_low_sides(uint8_t mask) {
+  gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, (mask & 0b001) != 0);
+  gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, (mask & 0b010) != 0);
+  gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, (mask & 0b100) != 0);
+}
+static inline void set_high_sides(pwm_hi_t hi, uint16_t duty) {
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, (hi == PWM_CH2) ? duty : 0);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, (hi == PWM_CH3) ? duty : 0);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, (hi == PWM_CH4) ? duty : 0);
+}
+void commutate(uint8_t hall, uint16_t duty) {
+  comm_state_t s = comm_table[hall & 0x7];
+  set_low_sides(s.low_mask);
+  set_high_sides(s.hi, duty);
 }
 static inline void allOff(void)
 {
-  // stop PWM drive
-  htim1.Instance->CCR4 = 0;
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
-
-  // all low sides off
-  gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, 0);
-  gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, 0);
-  gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, 0);
+  set_high_sides(PWM_NONE, 0);
+  set_low_sides(0b000);
+}
+static inline void deadtime_us(uint32_t us)
+{
+  uint32_t start = DWT_CYCCNT;
+  uint32_t ticks = us * (SystemCoreClock / 1000000UL);
+  while ((DWT_CYCCNT - start) < ticks) { }
+}
+static inline uint8_t read_hall(void)
+{
+  return (gpio_read(HALL_A_GPIO_Port, HALL_A_Pin) << 2) |
+         (gpio_read(HALL_B_GPIO_Port, HALL_B_Pin) << 1) |
+         (gpio_read(HALL_C_GPIO_Port, HALL_C_Pin));
 }
 /* USER CODE END 0 */
 
@@ -187,6 +162,7 @@ int main(void)
 
   /* USER CODE BEGIN Init */
   DEMCR |= (1 << 24);   // TRCENA
+  DWT_CYCCNT = 0;       // reset counter once
   DWT_CTRL |= (1 << 0); // CYCCNTENA
   /* USER CODE END Init */
 
@@ -199,10 +175,12 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  // HAL_PWR_EnterSLEEPMode();
   HAL_SuspendTick(); // to stop core from waking up
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
@@ -211,16 +189,12 @@ int main(void)
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
 
-  gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, 0);
-  gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, 0);
-  gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, 0);
+  set_low_sides(0b000);
 
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
-  HAL_ADC_Start_IT(&hadc1);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, 1);
 
-  hallState = (gpio_read(HALL_A_GPIO_Port, HALL_A_Pin) << 2) |
-              (gpio_read(HALL_B_GPIO_Port, HALL_B_Pin) << 1) |
-              (gpio_read(HALL_C_GPIO_Port, HALL_C_Pin));
+  hallState = read_hall();
   commutateFlag = 1;
   /* USER CODE END 2 */
 
@@ -229,13 +203,14 @@ int main(void)
   while (1)
   {
     #if DEBUG
-      DWT_CYCCNT = 0; // count cycles per looop
+      DWT_CYCCNT = 0; // count cycles per loop
     #endif
     if (commutateFlag)
     {
+      dutyCycle = adc_buf[0];
       commutate(hallState, dutyCycle);
       commutateFlag = 0;
-      HAL_ADC_Start_IT(&hadc1);
+      HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, 1);
     }
     #if DEBUG
       cycles = DWT->CYCCNT; // cycles per loop
@@ -519,6 +494,22 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -604,29 +595,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-  uint16_t newDutyCycle = adc_read(&hadc1);
-  if (newDutyCycle != dutyCycle)
-  {
-    dutyCycle = newDutyCycle;
-  }
-  // Keep the commutation loop alive even if throttle doesn't change.
-  commutateFlag = 1;
-}
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  uint8_t newHall = (gpio_read(HALL_A_GPIO_Port, HALL_A_Pin) << 2) |
-                    (gpio_read(HALL_B_GPIO_Port, HALL_B_Pin) << 1) |
-                    (gpio_read(HALL_C_GPIO_Port, HALL_C_Pin));
-  // only commutate if hall state changed
-  if (newHall != hallState)
-  {
-      allOff();
-      hallState = newHall;
-      commutateFlag = 1;
-  }
-}
+
 /* USER CODE END 4 */
 
 /**

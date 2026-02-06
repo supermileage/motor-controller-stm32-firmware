@@ -36,7 +36,16 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
+typedef enum {
+  PWM_NONE = 0,
+  PWM_CH2,
+  PWM_CH3,
+  PWM_CH4,
+} pwm_hi_t;
+typedef struct {
+  uint8_t low_mask; // bit0=A, bit1=B, bit2=C
+  pwm_hi_t hi;
+} comm_state_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
