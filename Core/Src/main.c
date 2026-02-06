@@ -64,6 +64,7 @@ int counter = 0;
 #endif
 uint32_t cycles;
 volatile uint16_t dutyCycle;
+volatile uint8_t dutyUpdateFlag = 0;
 volatile uint8_t hallState;
 volatile uint8_t commutateFlag;
 /* USER CODE END PV */
@@ -154,10 +155,15 @@ void commutate(uint8_t hallState, uint16_t dutyCycle)
       break;
   }
 }
+static inline void deadtime_us(uint32_t us)
+{
+  uint32_t start = DWT->CYCCNT;
+  uint32_t ticks = us * (SystemCoreClock / 1000000UL);
+  while ((DWT->CYCCNT - start) < ticks) { }
+}
 static inline void allOff(void)
 {
   // stop PWM drive
-  htim1.Instance->CCR4 = 0;
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
@@ -188,6 +194,7 @@ int main(void)
   /* USER CODE BEGIN Init */
   DEMCR |= (1 << 24);   // TRCENA
   DWT_CTRL |= (1 << 0); // CYCCNTENA
+  DWT->CYCCNT = 0;
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -235,7 +242,6 @@ int main(void)
     {
       commutate(hallState, dutyCycle);
       commutateFlag = 0;
-      HAL_ADC_Start_IT(&hadc1);
     }
     #if DEBUG
       cycles = DWT->CYCCNT; // cycles per loop
@@ -611,8 +617,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
   {
     dutyCycle = newDutyCycle;
   }
-  // Keep the commutation loop alive even if throttle doesn't change.
   commutateFlag = 1;
+  HAL_ADC_Start_IT(&hadc1);
 }
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
@@ -623,6 +629,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   if (newHall != hallState)
   {
       allOff();
+      deadtime_us(COMMUTATION_DEADTIME_US);
       hallState = newHall;
       commutateFlag = 1;
   }
