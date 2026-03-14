@@ -457,7 +457,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-#define COMMUTATION_DEADTIME_US 6
+#define COMMUTATION_DEADTIME_NS 1000U
 
 static inline void allOff(void)
 {
@@ -472,11 +472,18 @@ static inline void allOff(void)
   gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, 0);
 }
 
-static inline void deadtime_us(uint32_t us)
+static inline void deadtime_ns(uint32_t ns)
 {
-  // DWT must be enabled like you did
+  // 12.5 ns per cycle at 80 MHz
+  if (ns == 0U) {
+    return;
+  }
+
   uint32_t start = DWT_CYCCNT;
-  uint32_t ticks = us * (SystemCoreClock / 1000000UL);
+  uint32_t ticks = (uint32_t)((((uint64_t)ns * (uint64_t)SystemCoreClock) + 999999999ULL) / 1000000000ULL);
+  if (ticks == 0U) {
+    ticks = 1U;
+  }
   while ((DWT_CYCCNT - start) < ticks) { }
 }
 
@@ -493,16 +500,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     // Only if it actually changed
     if (newHall != hallState) {
         allOff();
-        deadtime_us(COMMUTATION_DEADTIME_US);
+        deadtime_ns(COMMUTATION_DEADTIME_NS);
         hallState = newHall;
         commutateFlag = 1;
     }
 }
 void commutate(uint8_t hallState, uint16_t dutyCycle)
 {
-    switch (hallState)
+switch (hallState)
     {
-        case 0b101: // hallA && !hallB && hallC
+        case 0b010: // hallA && !hallB && hallC
             gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
             gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, true); // YES
             gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
@@ -511,7 +518,7 @@ void commutate(uint8_t hallState, uint16_t dutyCycle)
             __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, dutyCycle); // YES
             break;
 
-        case 0b100: // hallA && !hallB && !hallC
+        case 0b011: // hallA && !hallB && !hallC
             gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
             gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, true); // YES
             gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
@@ -520,7 +527,7 @@ void commutate(uint8_t hallState, uint16_t dutyCycle)
             __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
             break;
 
-        case 0b110: // hallA && hallB && !hallC
+        case 0b001: // hallA && hallB && !hallC
             gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
             gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
             gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, true); // YES
@@ -529,7 +536,7 @@ void commutate(uint8_t hallState, uint16_t dutyCycle)
             __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
             break;
 
-        case 0b010: // !hallA && hallB && !hallC
+        case 0b101: // !hallA && hallB && !hallC
             gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, false);
             gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
             gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, true); // YES
@@ -538,7 +545,7 @@ void commutate(uint8_t hallState, uint16_t dutyCycle)
             __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
             break;
 
-        case 0b011:                                                   // !hallA && hallB && hallC
+        case 0b100:                                                   // !hallA && hallB && hallC
             gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, true); // YES
             gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
             gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
@@ -547,7 +554,7 @@ void commutate(uint8_t hallState, uint16_t dutyCycle)
             __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
             break;
 
-        case 0b001:                                                   // !hallA && !hallB && hallC
+        case 0b110:                                                   // !hallA && !hallB && hallC
             gpio_write(MOSFET_A_LO_GPIO_Port, MOSFET_A_LO_Pin, true); // YES
             gpio_write(MOSFET_B_LO_GPIO_Port, MOSFET_B_LO_Pin, false);
             gpio_write(MOSFET_C_LO_GPIO_Port, MOSFET_C_LO_Pin, false);
