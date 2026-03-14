@@ -457,7 +457,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-#define COMMUTATION_DEADTIME_US 6
+#define COMMUTATION_DEADTIME_US 1
 
 static inline void allOff(void)
 {
