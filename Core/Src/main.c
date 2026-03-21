@@ -157,8 +157,7 @@ static inline void phase_set(uint32_t channel, phase_state_t state, uint16_t dut
     case PHASE_OFF:
     default:
       __HAL_TIM_SET_COMPARE(&htim1, channel, 0);
-      TIM1->CCER |= ccxe;
-      TIM1->CCER &= ~ccxne;              // hi side 0, low side off
+      TIM1->CCER &= ~(ccxe | ccxne);     // disable both -> floating phase
       break;
   }
 }
