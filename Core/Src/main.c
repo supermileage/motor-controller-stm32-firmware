@@ -36,6 +36,10 @@ typedef enum {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define DEMCR (*((volatile uint32_t*) 0xE000EDFC))
+#define DWT_CTRL (*((volatile uint32_t*) 0xE0001000))
+#define DWT_CYCCNT (*((volatile uint32_t*) 0xE0001004))
+#define DEADTIME_COMMUTATION 300  // ns commutation deadtime
 #define CLOCKWISE 0  // 1 = clockwise, 0 = counterclockwise (LOOKING INTO ROTOR)
 /* USER CODE END PD */
 
@@ -64,6 +68,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
+static inline void deadtime_ns(uint32_t ns);
 static inline uint8_t readHall(void);
 static inline void phase_set(uint32_t channel, phase_state_t state, uint16_t duty);
 static inline void phaseA_set(phase_state_t state, uint16_t duty);
@@ -76,6 +81,12 @@ static inline void commutate(uint8_t hallState, uint16_t dutyCycle);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static inline void deadtime_ns(uint32_t ns)
+{
+  uint32_t cycles = (uint32_t)((ns * (uint64_t)SystemCoreClock) / 1000000000ULL);
+  uint32_t start = DWT->CYCCNT;
+  while ((DWT->CYCCNT - start) < cycles);
+}
 PUTCHAR_PROTOTYPE
 {
   HAL_UART_Transmit(&huart2, (uint8_t*) &ch, 1, 0xFFFF);
@@ -146,7 +157,8 @@ static inline void phase_set(uint32_t channel, phase_state_t state, uint16_t dut
     case PHASE_OFF:
     default:
       __HAL_TIM_SET_COMPARE(&htim1, channel, 0);
-      TIM1->CCER &= ~(ccxe | ccxne);     // disable both -> floating phase
+      TIM1->CCER |= ccxe;
+      TIM1->CCER &= ~ccxne;              // hi side 0, low side off
       break;
   }
 }
@@ -174,6 +186,10 @@ static inline void commutate(uint8_t hallState, uint16_t duty)
     allPhasesOff();
     return;
   }
+  
+  allPhasesOff();
+  deadtime_ns(DEADTIME_COMMUTATION);
+
   switch (hallState)
   {
 #if CLOCKWISE
@@ -275,7 +291,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  DEMCR |= (1 << 24);   // TRCENA
+  DWT_CTRL |= (1 << 0); // CYCCNTENA
   /* USER CODE END Init */
 
   /* Configure the system clock */
