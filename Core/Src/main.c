@@ -18,7 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <stdint.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -50,6 +49,7 @@ TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN PV */
 uint16_t dutyCycle;
 volatile uint8_t hallState;
+volatile uint32_t lastHall;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -71,6 +71,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM2)
   {
+    lastHall = HAL_GetTick();
     hallState = readHall();
     // PRELOAD next step BEFORE COM event
     commutate(hallState, scale(dutyCycle));
@@ -228,12 +229,21 @@ int main(void)
                   TIM_CCER_CC3E | TIM_CCER_CC3NE);
   hallState = readHall();
   dutyCycle = 0;
+  lastHall = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    uint32_t now = HAL_GetTick();
+    if ((now - lastHall) > 200)  // if no commutation after 200ms, force commutation
+    {
+      hallState = readHall();
+      commutate(hallState, scale(dutyCycle));
+      TIM1->EGR |= TIM_EGR_COMG;  // manually generate commutate event
+      lastHall = now;
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -480,7 +490,7 @@ static void MX_TIM2_Init(void)
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 5;
+  sConfig.IC1Filter = 0;
   sConfig.Commutation_Delay = 40;
   if (HAL_TIMEx_HallSensor_Init(&htim2, &sConfig) != HAL_OK)
   {
