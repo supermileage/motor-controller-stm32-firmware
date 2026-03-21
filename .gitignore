@@ -1,2 +1,5 @@
+build/
 .pio/
+.cache/
 .mxproject
+compile_commands.json

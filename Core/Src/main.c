@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32l4xx_hal_adc.h"
+#include <stdint.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -27,19 +27,11 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum {
-  PHASE_OFF = 0,
-  PHASE_PWM_HIGH,
-  PHASE_LOW_ON
-} phase_state_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DEMCR (*((volatile uint32_t*) 0xE000EDFC))
-#define DWT_CTRL (*((volatile uint32_t*) 0xE0001000))
-#define DWT_CYCCNT (*((volatile uint32_t*) 0xE0001004))
-#define DEADTIME_COMMUTATION 300  // ns commutation deadtime
 #define CLOCKWISE 0  // 1 = clockwise, 0 = counterclockwise (LOOKING INTO ROTOR)
 /* USER CODE END PD */
 
@@ -50,65 +42,44 @@ typedef enum {
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 TIM_HandleTypeDef htim1;
-
-UART_HandleTypeDef huart2;
+TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-volatile uint16_t dutyCycle;
+uint16_t dutyCycle;
 volatile uint8_t hallState;
-volatile uint8_t commutateFlag;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_TIM2_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
-static inline void deadtime_ns(uint32_t ns);
+static inline uint16_t scale(uint16_t duty);
 static inline uint8_t readHall(void);
-static inline void phase_set(uint32_t channel, phase_state_t state, uint16_t duty);
-static inline void phaseA_set(phase_state_t state, uint16_t duty);
-static inline void phaseB_set(phase_state_t state, uint16_t duty);
-static inline void phaseC_set(phase_state_t state, uint16_t duty);
-static inline void allPhasesOff(void);
 static inline void commutate(uint8_t hallState, uint16_t dutyCycle);
-#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static inline void deadtime_ns(uint32_t ns)
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-  uint32_t cycles = (uint32_t)((ns * (uint64_t)SystemCoreClock) / 1000000000ULL);
-  uint32_t start = DWT->CYCCNT;
-  while ((DWT->CYCCNT - start) < cycles);
-}
-PUTCHAR_PROTOTYPE
-{
-  HAL_UART_Transmit(&huart2, (uint8_t*) &ch, 1, 0xFFFF);
-  return ch;
-}
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-  if (hadc == &hadc1)
+  if (htim->Instance == TIM2)
   {
-    dutyCycle = HAL_ADC_GetValue(hadc);
-    commutateFlag = 1;
+    hallState = readHall();
+    // PRELOAD next step BEFORE COM event
+    commutate(hallState, scale(dutyCycle));
   }
 }
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+static inline uint16_t scale(uint16_t duty)
 {
-  if (GPIO_Pin == HALL_A_Pin || GPIO_Pin == HALL_B_Pin || GPIO_Pin == HALL_C_Pin) {
-    uint8_t newHall = readHall();
-    if (newHall != hallState) {
-      hallState = newHall;
-      commutateFlag = 1;
-    }
-  }
+    uint32_t x = ((uint32_t)duty * 1945u) / 4095u;  // map from 0-4095 adc to 0-1945 (95% of 2047 to protect bootstrap refresh)
+    return (uint16_t)x;
 }
 static inline uint8_t readHall(void)
 {
@@ -116,158 +87,102 @@ static inline uint8_t readHall(void)
          ((HAL_GPIO_ReadPin(HALL_B_GPIO_Port, HALL_B_Pin) ? 1 : 0) << 1) |
          ((HAL_GPIO_ReadPin(HALL_C_GPIO_Port, HALL_C_Pin) ? 1 : 0));
 }
-static inline void phase_set(uint32_t channel, phase_state_t state, uint16_t duty)
-{
-  uint32_t ccxe = 0;
-  uint32_t ccxne = 0;
-
-  switch (channel)
-  {
-    case TIM_CHANNEL_1:
-      ccxe  = TIM_CCER_CC1E;
-      ccxne = TIM_CCER_CC1NE;
-      break;
-
-    case TIM_CHANNEL_2:
-      ccxe  = TIM_CCER_CC2E;
-      ccxne = TIM_CCER_CC2NE;
-      break;
-
-    case TIM_CHANNEL_3:
-      ccxe  = TIM_CCER_CC3E;
-      ccxne = TIM_CCER_CC3NE;
-      break;
-
-    default:
-      return;
-  }
-
-  switch (state)
-  {
-    case PHASE_PWM_HIGH:
-      __HAL_TIM_SET_COMPARE(&htim1, channel, duty);
-      TIM1->CCER |= (ccxe | ccxne);      // enable both outputs of the pair
-      break;
-
-    case PHASE_LOW_ON:
-      __HAL_TIM_SET_COMPARE(&htim1, channel, 0);
-      TIM1->CCER |= (ccxe | ccxne);      // enable both outputs of the pair
-      break;
-
-    case PHASE_OFF:
-    default:
-      __HAL_TIM_SET_COMPARE(&htim1, channel, 0);
-      TIM1->CCER &= ~(ccxe | ccxne);     // disable both -> floating phase
-      break;
-  }
-}
-static inline void phaseA_set(phase_state_t state, uint16_t duty)
-{
-  phase_set(TIM_CHANNEL_1, state, duty);
-}
-static inline void phaseB_set(phase_state_t state, uint16_t duty)
-{
-  phase_set(TIM_CHANNEL_2, state, duty);
-}
-static inline void phaseC_set(phase_state_t state, uint16_t duty)
-{
-  phase_set(TIM_CHANNEL_3, state, duty);
-}
-static inline void allPhasesOff(void)
-{
-  phaseA_set(PHASE_OFF, 0);
-  phaseB_set(PHASE_OFF, 0);
-  phaseC_set(PHASE_OFF, 0);
-}
 static inline void commutate(uint8_t hallState, uint16_t duty)
 {
   if (duty < 100) {
-    allPhasesOff();
+    TIM1->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE |
+                    TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                    TIM_CCER_CC3E | TIM_CCER_CC3NE);
     return;
   }
-  
-  allPhasesOff();
-  deadtime_ns(DEADTIME_COMMUTATION);
+
+  // POTENTIALLY BAD MAYBE GET RID OF THIS IF ISSUES, REMEMBER TO DISABLE FLOATING
+  // EXPLICITELY IN SWITCH IF REMOVED!!!
+  TIM1->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE |
+                  TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                  TIM_CCER_CC3E | TIM_CCER_CC3NE);
 
   switch (hallState)
   {
 #if CLOCKWISE
     case 0b101:   // C+, B-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
+      TIM1->CCR3 = duty;
+      TIM1->CCR2 = 0;
+      TIM1->CCER |= (TIM_CCER_CC3E | TIM_CCER_CC3NE | TIM_CCER_CC2E | TIM_CCER_CC2NE);
       break;
 
     case 0b100:   // A+, B-, C open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_OFF, 0);
+      TIM1->CCR1 = duty;
+      TIM1->CCR2 = 0;
+      TIM1->CCER |= (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE);
       break;
 
     case 0b110:   // A+, C-, B open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_LOW_ON, 0);
+      TIM1->CCR1 = duty;
+      TIM1->CCR3 = 0;
+      TIM1->CCER |= (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
       break;
 
     case 0b010:   // B+, C-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_LOW_ON, 0);
+      TIM1->CCR2 = duty;
+      TIM1->CCR3 = 0;
+      TIM1->CCER |= (TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
       break;
 
     case 0b011:   // B+, A-, C open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_OFF, 0);
+      TIM1->CCR2 = duty;
+      TIM1->CCR1 = 0;
+      TIM1->CCER |= (TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC1E | TIM_CCER_CC1NE);
       break;
 
     case 0b001:   // C+, A-, B open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
+      TIM1->CCR3 = duty;
+      TIM1->CCR1 = 0;
+      TIM1->CCER |= (TIM_CCER_CC3E | TIM_CCER_CC3NE | TIM_CCER_CC1E | TIM_CCER_CC1NE);
       break;
 #else
     case 0b101:   // B+, C-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_LOW_ON, 0);
+      TIM1->CCR2 = duty;
+      TIM1->CCR3 = 0;
+      TIM1->CCER |= (TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
       break;
 
     case 0b100:   // B+, A-, C open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_OFF, 0);
+      TIM1->CCR2 = duty;
+      TIM1->CCR1 = 0;
+      TIM1->CCER |= (TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC1E | TIM_CCER_CC1NE);
       break;
 
     case 0b110:   // C+, A-, B open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
+      TIM1->CCR3 = duty;
+      TIM1->CCR1 = 0;
+      TIM1->CCER |= (TIM_CCER_CC3E | TIM_CCER_CC3NE | TIM_CCER_CC1E | TIM_CCER_CC1NE);
       break;
 
     case 0b010:   // C+, B-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
+      TIM1->CCR3 = duty;
+      TIM1->CCR2 = 0;
+      TIM1->CCER |= (TIM_CCER_CC3E | TIM_CCER_CC3NE | TIM_CCER_CC2E | TIM_CCER_CC2NE);
       break;
 
     case 0b011:   // A+, B-, C open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_OFF, 0);
+      TIM1->CCR1 = duty;
+      TIM1->CCR2 = 0;
+      TIM1->CCER |= (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE);
       break;
 
     case 0b001:   // A+, C-, B open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_LOW_ON, 0);
+      TIM1->CCR1 = duty;
+      TIM1->CCR3 = 0;
+      TIM1->CCER |= (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
       break;
 #endif
     case 0b000:
     case 0b111:
     default:
-      allPhasesOff();
+      TIM1->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE |
+                      TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                      TIM_CCER_CC3E | TIM_CCER_CC3NE);
       break;
   }
 }
@@ -290,8 +205,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  DEMCR |= (1 << 24);   // TRCENA
-  DWT_CTRL |= (1 << 0); // CYCCNTENA
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -303,50 +217,23 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART2_UART_Init();
+  MX_DMA_Init();
   MX_TIM1_Init();
+  MX_TIM2_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  HAL_SuspendTick();
-
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
-
-  allPhasesOff();
-  
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&dutyCycle, 1);
+  TIM1->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC1NE |
+                  TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                  TIM_CCER_CC3E | TIM_CCER_CC3NE);
   hallState = readHall();
   dutyCycle = 0;
-  commutateFlag = 1;
-
-  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
-  HAL_ADC_Start_IT(&hadc1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    uint8_t pending;
-    uint8_t state;
-    uint16_t duty;
-
-    __disable_irq();
-    pending = commutateFlag;
-    state = hallState;
-    duty = dutyCycle;
-    commutateFlag = 0;
-    __enable_irq();
-
-    if (pending) {
-      commutate(state, duty);
-      HAL_ADC_Start_IT(&hadc1);
-    } else {
-      __WFI();
-    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -370,16 +257,10 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-  /** Configure LSE Drive Capability
-  */
-  HAL_PWR_EnableBkUpAccess();
-  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
-
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE|RCC_OSCILLATORTYPE_MSI;
-  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
   RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
@@ -408,10 +289,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-
-  /** Enable MSI Auto calibration
-  */
-  HAL_RCCEx_EnableMSIPLLMode();
 }
 
 /**
@@ -441,12 +318,12 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -456,9 +333,9 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_10;
+  sConfig.Channel = ADC_CHANNEL_9;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_47CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -485,6 +362,7 @@ static void MX_TIM1_Init(void)
   /* USER CODE END TIM1_Init 0 */
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
   TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
@@ -494,8 +372,8 @@ static void MX_TIM1_Init(void)
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 4095;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED1;
+  htim1.Init.Period = 2047;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -509,6 +387,12 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR1;
+  if (HAL_TIM_SlaveConfigSynchro(&htim1, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -541,7 +425,7 @@ static void MX_TIM1_Init(void)
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 20;
+  sBreakDeadTimeConfig.DeadTime = 40;
   sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
   sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
   sBreakDeadTimeConfig.BreakFilter = 0;
@@ -554,44 +438,79 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM1_Init 2 */
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
 
+  TIM1->CR2 |= TIM_CR2_CCPC;  // enable preload
+  TIM1->CR2 |= TIM_CR2_CCUS;  // apply on COM event
+  HAL_TIMEx_ConfigCommutEvent(&htim1, TIM_TS_ITR1, TIM_COMMUTATION_TRGI);
+  htim1.Instance->DIER |= TIM_DIER_COMIE;
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
 
 }
 
 /**
-  * @brief USART2 Initialization Function
+  * @brief TIM2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART2_UART_Init(void)
+static void MX_TIM2_Init(void)
 {
 
-  /* USER CODE BEGIN USART2_Init 0 */
+  /* USER CODE BEGIN TIM2_Init 0 */
 
-  /* USER CODE END USART2_Init 0 */
+  /* USER CODE END TIM2_Init 0 */
 
-  /* USER CODE BEGIN USART2_Init 1 */
+  TIM_HallSensor_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 5;
+  sConfig.Commutation_Delay = 40;
+  if (HAL_TIMEx_HallSensor_Init(&htim2, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART2_Init 2 */
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC2REF;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+  HAL_TIMEx_HallSensor_Start_IT(&htim2);
+  /* USER CODE END TIM2_Init 2 */
 
-  /* USER CODE END USART2_Init 2 */
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
 }
 
@@ -613,30 +532,24 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+  /*Configure GPIO pins : PC14 PC15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_14|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : HALL_C_Pin HALL_B_Pin HALL_A_Pin */
-  GPIO_InitStruct.Pin = HALL_C_Pin|HALL_B_Pin|HALL_A_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA6 PA11 PA12 */
-  GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_11|GPIO_PIN_12;
+  /*Configure GPIO pins : PA3 PA6 PA11 PA12
+                           PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_6|GPIO_PIN_11|GPIO_PIN_12
+                          |GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD3_Pin */
-  GPIO_InitStruct.Pin = LD3_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD3_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PB4 PB5 PB6 PB7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
+  /*Configure GPIO pins : PB3 PB4 PB5 PB6
+                           PB7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6
+                          |GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -646,16 +559,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

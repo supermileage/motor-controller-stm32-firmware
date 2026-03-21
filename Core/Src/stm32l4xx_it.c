@@ -55,7 +55,9 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern ADC_HandleTypeDef hadc1;
+extern DMA_HandleTypeDef hdma_adc1;
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -199,59 +201,45 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles EXTI line1 interrupt.
+  * @brief This function handles DMA1 channel1 global interrupt.
   */
-void EXTI1_IRQHandler(void)
+void DMA1_Channel1_IRQHandler(void)
 {
-  /* USER CODE BEGIN EXTI1_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
 
-  /* USER CODE END EXTI1_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(HALL_C_Pin);
-  /* USER CODE BEGIN EXTI1_IRQn 1 */
+  /* USER CODE END DMA1_Channel1_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_adc1);
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
 
-  /* USER CODE END EXTI1_IRQn 1 */
+  /* USER CODE END DMA1_Channel1_IRQn 1 */
 }
 
 /**
-  * @brief This function handles EXTI line3 interrupt.
+  * @brief This function handles TIM1 trigger and commutation interrupts.
   */
-void EXTI3_IRQHandler(void)
+void TIM1_TRG_COM_IRQHandler(void)
 {
-  /* USER CODE BEGIN EXTI3_IRQn 0 */
+  /* USER CODE BEGIN TIM1_TRG_COM_IRQn 0 */
 
-  /* USER CODE END EXTI3_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(HALL_B_Pin);
-  /* USER CODE BEGIN EXTI3_IRQn 1 */
+  /* USER CODE END TIM1_TRG_COM_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim1);
+  /* USER CODE BEGIN TIM1_TRG_COM_IRQn 1 */
 
-  /* USER CODE END EXTI3_IRQn 1 */
+  /* USER CODE END TIM1_TRG_COM_IRQn 1 */
 }
 
 /**
-  * @brief This function handles EXTI line4 interrupt.
+  * @brief This function handles TIM2 global interrupt.
   */
-void EXTI4_IRQHandler(void)
+void TIM2_IRQHandler(void)
 {
-  /* USER CODE BEGIN EXTI4_IRQn 0 */
+  /* USER CODE BEGIN TIM2_IRQn 0 */
 
-  /* USER CODE END EXTI4_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(HALL_A_Pin);
-  /* USER CODE BEGIN EXTI4_IRQn 1 */
+  /* USER CODE END TIM2_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim2);
+  /* USER CODE BEGIN TIM2_IRQn 1 */
 
-  /* USER CODE END EXTI4_IRQn 1 */
-}
-
-/**
-  * @brief This function handles ADC1 global interrupt.
-  */
-void ADC1_IRQHandler(void)
-{
-  /* USER CODE BEGIN ADC1_IRQn 0 */
-
-  /* USER CODE END ADC1_IRQn 0 */
-  HAL_ADC_IRQHandler(&hadc1);
-  /* USER CODE BEGIN ADC1_IRQn 1 */
-
-  /* USER CODE END ADC1_IRQn 1 */
+  /* USER CODE END TIM2_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
