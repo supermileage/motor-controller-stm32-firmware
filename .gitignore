@@ -1,2 +1,9 @@
 .pio/
+build/
+Core/Startup
+cmake/
+CMakeLists.txt
+CMakePresets.json
 .mxproject
+startup_stm32l432xx.s
+STM32L432XX_FLASH.ld
