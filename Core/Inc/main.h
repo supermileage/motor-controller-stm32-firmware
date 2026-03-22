@@ -59,13 +59,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define MCO_Pin GPIO_PIN_0
-#define MCO_GPIO_Port GPIOA
 #define HALL_C_Pin GPIO_PIN_1
 #define HALL_C_GPIO_Port GPIOA
 #define HALL_C_EXTI_IRQn EXTI1_IRQn
-#define VCP_TX_Pin GPIO_PIN_2
-#define VCP_TX_GPIO_Port GPIOA
 #define HALL_B_Pin GPIO_PIN_3
 #define HALL_B_GPIO_Port GPIOA
 #define HALL_B_EXTI_IRQn EXTI3_IRQn
@@ -90,10 +86,6 @@ void Error_Handler(void);
 #define SWDIO_GPIO_Port GPIOA
 #define SWCLK_Pin GPIO_PIN_14
 #define SWCLK_GPIO_Port GPIOA
-#define VCP_RX_Pin GPIO_PIN_15
-#define VCP_RX_GPIO_Port GPIOA
-#define LD3_Pin GPIO_PIN_3
-#define LD3_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
