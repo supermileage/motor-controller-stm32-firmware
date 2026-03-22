@@ -18,7 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32l4xx_hal_adc.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -183,93 +182,92 @@ static inline void commutate(uint8_t hallState, uint16_t duty)
 {
   if (duty < 100) {
     allPhasesOff();
-    return;
-  }
+  } else {
   
-  allPhasesOff();
-  deadtime_ns(DEADTIME_COMMUTATION);
+    switch (hallState)
+    {
+  #if CLOCKWISE
+      case 0b101:   // C+, B-, A open
+        phaseA_set(PHASE_OFF, 0);
+        phaseB_set(PHASE_LOW_ON, 0);
+        phaseC_set(PHASE_PWM_HIGH, duty);
+        break;
 
-  switch (hallState)
-  {
-#if CLOCKWISE
-    case 0b101:   // C+, B-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
-      break;
+      case 0b100:   // A+, B-, C open
+        phaseA_set(PHASE_PWM_HIGH, duty);
+        phaseB_set(PHASE_LOW_ON, 0);
+        phaseC_set(PHASE_OFF, 0);
+        break;
 
-    case 0b100:   // A+, B-, C open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_OFF, 0);
-      break;
+      case 0b110:   // A+, C-, B open
+        phaseA_set(PHASE_PWM_HIGH, duty);
+        phaseB_set(PHASE_OFF, 0);
+        phaseC_set(PHASE_LOW_ON, 0);
+        break;
 
-    case 0b110:   // A+, C-, B open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_LOW_ON, 0);
-      break;
+      case 0b010:   // B+, C-, A open
+        phaseA_set(PHASE_OFF, 0);
+        phaseB_set(PHASE_PWM_HIGH, duty);
+        phaseC_set(PHASE_LOW_ON, 0);
+        break;
 
-    case 0b010:   // B+, C-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_LOW_ON, 0);
-      break;
+      case 0b011:   // B+, A-, C open
+        phaseA_set(PHASE_LOW_ON, 0);
+        phaseB_set(PHASE_PWM_HIGH, duty);
+        phaseC_set(PHASE_OFF, 0);
+        break;
 
-    case 0b011:   // B+, A-, C open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_OFF, 0);
-      break;
+      case 0b001:   // C+, A-, B open
+        phaseA_set(PHASE_LOW_ON, 0);
+        phaseB_set(PHASE_OFF, 0);
+        phaseC_set(PHASE_PWM_HIGH, duty);
+        break;
+  #else
+      case 0b101:   // B+, C-, A open
+        phaseA_set(PHASE_OFF, 0);
+        phaseB_set(PHASE_PWM_HIGH, duty);
+        phaseC_set(PHASE_LOW_ON, 0);
+        break;
 
-    case 0b001:   // C+, A-, B open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
-      break;
-#else
-    case 0b101:   // B+, C-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_LOW_ON, 0);
-      break;
+      case 0b100:   // B+, A-, C open
+        phaseA_set(PHASE_LOW_ON, 0);
+        phaseB_set(PHASE_PWM_HIGH, duty);
+        phaseC_set(PHASE_OFF, 0);
+        break;
 
-    case 0b100:   // B+, A-, C open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_PWM_HIGH, duty);
-      phaseC_set(PHASE_OFF, 0);
-      break;
+      case 0b110:   // C+, A-, B open
+        phaseA_set(PHASE_LOW_ON, 0);
+        phaseB_set(PHASE_OFF, 0);
+        phaseC_set(PHASE_PWM_HIGH, duty);
+        break;
 
-    case 0b110:   // C+, A-, B open
-      phaseA_set(PHASE_LOW_ON, 0);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
-      break;
+      case 0b010:   // C+, B-, A open
+        phaseA_set(PHASE_OFF, 0);
+        phaseB_set(PHASE_LOW_ON, 0);
+        phaseC_set(PHASE_PWM_HIGH, duty);
+        break;
 
-    case 0b010:   // C+, B-, A open
-      phaseA_set(PHASE_OFF, 0);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_PWM_HIGH, duty);
-      break;
+      case 0b011:   // A+, B-, C open
+        phaseA_set(PHASE_PWM_HIGH, duty);
+        phaseB_set(PHASE_LOW_ON, 0);
+        phaseC_set(PHASE_OFF, 0);
+        break;
 
-    case 0b011:   // A+, B-, C open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_LOW_ON, 0);
-      phaseC_set(PHASE_OFF, 0);
-      break;
-
-    case 0b001:   // A+, C-, B open
-      phaseA_set(PHASE_PWM_HIGH, duty);
-      phaseB_set(PHASE_OFF, 0);
-      phaseC_set(PHASE_LOW_ON, 0);
-      break;
-#endif
-    case 0b000:
-    case 0b111:
-    default:
-      allPhasesOff();
-      break;
+      case 0b001:   // A+, C-, B open
+        phaseA_set(PHASE_PWM_HIGH, duty);
+        phaseB_set(PHASE_OFF, 0);
+        phaseC_set(PHASE_LOW_ON, 0);
+        break;
+  #endif
+      case 0b000:
+      case 0b111:
+      default:
+        allPhasesOff();
+        break;
+    }
   }
+
+  HAL_TIM_GenerateEvent(&htim1, TIM_EVENTSOURCE_COM);
 }
 /* USER CODE END 0 */
 
@@ -316,8 +314,11 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
 
+  HAL_TIMEx_ConfigCommutEvent(&htim1, TIM_TS_NONE, TIM_COMMUTATION_SOFTWARE);
+
   allPhasesOff();
-  
+  HAL_TIM_GenerateEvent(&htim1, TIM_EVENTSOURCE_COM);
+
   hallState = readHall();
   dutyCycle = 0;
   commutateFlag = 1;
