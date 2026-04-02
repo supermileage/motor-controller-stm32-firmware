@@ -35,8 +35,8 @@ typedef enum {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define CLOCKWISE        0                    // 1 = clockwise, 0 = counterclockwise (LOOKING INTO ROTOR)
-#define DEBUG_LOG        1                    // 1 = enable debug telemetry prints, 0 = disable
+#define CLOCKWISE        1                    // 1 = clockwise, 0 = counterclockwise (LOOKING INTO ROTOR)
+#define DEBUG_LOG        0                    // 1 = enable debug telemetry prints, 0 = disable
 #define MAX_DUTY         ((2047 * 95) / 100)  // max 95% duty to protect bootstrap
 #define MIN_HALL_DT_US   200                  // 2 / (MIN_HALL_DT_US) = max rpm (10K RPM rn, actual motor max is 8112 RPM)
 #define ADC_BUF_LEN      16                   // rolling average
@@ -116,10 +116,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim == &htim6)
   {
+    uint32_t now = micros();
     uint16_t raw_target_duty;
     uint16_t rpm;
 
-    if ((micros() - lastHall) > RPM_TIMEOUT_US) motor_rpm = 0;
+    if ((now - lastHall) > RPM_TIMEOUT_US) motor_rpm = 0;
     raw_target_duty = filtered_adc_to_duty();
 
     if (raw_target_duty <= shaped_target_duty)
@@ -167,7 +168,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       }
     }
 
-    if (rpm <= HALL_COMMUTATION_STABLE_RPM)
+    if (target_duty > 0 && rpm == 0)
     {
       uint8_t state = hallState;
       uint16_t duty = current_duty;
