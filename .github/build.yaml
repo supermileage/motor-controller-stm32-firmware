@@ -1,0 +1,22 @@
+name: build elf
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v4
+
+      - name: install toolchain
+        run: sudo apt update
+          sudo apt install -y gcc-arm-none-eabi cmake ninja
+
+      - name: cmake preset
+        run: cmake --preset Debug
+
+      - name: build
+        run: cmake --build --preset Debug -j
